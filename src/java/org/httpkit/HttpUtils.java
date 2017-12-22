@@ -1,7 +1,6 @@
 package org.httpkit;
 
 import clojure.lang.ISeq;
-import clojure.lang.PersistentList;
 import clojure.lang.Seqable;
 
 import java.io.*;
@@ -114,7 +113,7 @@ public class HttpUtils {
                 }
                 return ByteBuffer.wrap(b.get(), 0, b.length());
             }
-        // makes ultimate optimization possible: no copy
+            // makes ultimate optimization possible: no copy
         } else if (body instanceof ByteBuffer) {
             return (ByteBuffer) body;
         } else {
@@ -129,7 +128,7 @@ public class HttpUtils {
     public static String encodeURI(String url) {
         byte[] bytes = url.getBytes(UTF_8);
         DynamicBytes buffer = new DynamicBytes(bytes.length * 2);
-        boolean e = true;
+        boolean e;
         for (byte b : bytes) {
             int c = b < 0 ? b + 256 : b;
             if (c < '!' || c > '~') {
@@ -237,7 +236,7 @@ public class HttpUtils {
             return path + "?" + query;
     }
 
-    public static int getPort(URI uri) {
+    private static int getPort(URI uri) {
         int port = uri.getPort();
         if (port == -1) {
             if ("https".equals(uri.getScheme()))
@@ -291,7 +290,7 @@ public class HttpUtils {
         return bytes;
     }
 
-    public static ByteBuffer readAll(File f) throws IOException {
+    private static ByteBuffer readAll(File f) throws IOException {
         int length = (int) f.length();
         if (length >= 1024 * 1024 * 20) { // 20M
             FileInputStream fs = new FileInputStream(f);
@@ -359,9 +358,7 @@ public class HttpUtils {
         valueEnd = findEndOfString(sb, valueStart);
 
         String key = sb.substring(nameStart, nameEnd);
-        if (valueStart > valueEnd) { // ignore
-            // logger.warn("header error: " + sb);
-        } else {
+        if (valueStart <= valueEnd) {
             String value = sb.substring(valueStart, valueEnd);
             key = key.toLowerCase();
             Object v = headers.get(key);
@@ -370,12 +367,15 @@ public class HttpUtils {
                 value = v.toString() + "," + value;
             }
             headers.put(key, value);
-        }
+        } // ignore else
+        /* else {
+            logger.warn("header error: " + sb);
+        } */
     }
 
     /*----------------charset--------------------*/
 
-    public static Charset parseCharset(String type) {
+    private static Charset parseCharset(String type) {
         if (type != null) {
             try {
                 type = type.toLowerCase();
@@ -392,7 +392,7 @@ public class HttpUtils {
 
     // <?xml version='1.0' encoding='GBK'?>
     // <?xml version="1.0" encoding="UTF-8"?>
-    static final Pattern ENCODING = Pattern.compile("encoding=('|\")([\\w|-]+)('|\")",
+    private static final Pattern ENCODING = Pattern.compile("encoding=(['\"])([\\w|-]+)(['\"])",
             Pattern.CASE_INSENSITIVE);
 
     private static Charset guess(String html, String patten) {
@@ -434,14 +434,21 @@ public class HttpUtils {
         return result == null ? UTF_8 : result;
     }
 
-    public static final String CL = "Content-Length";
+    private static final String CL = "Content-Length";
 
     public static ByteBuffer[] HttpEncode(int status, HeaderMap headers, Object body) {
         ByteBuffer bodyBuffer;
         try {
             bodyBuffer = bodyBuffer(body);
             // only write length if not chunked
-            if (!CHUNKED.equals(headers.get("Transfer-Encoding"))) {
+            Object responseOptionsObj = headers.get("X-Response-Options");
+            String responseOptionsStr = responseOptionsObj != null && (responseOptionsObj instanceof String)
+                    ? ((String) responseOptionsObj) : "";
+            List<String> responseOptions = Arrays.asList(responseOptionsStr.trim().split("\\s*,\\s*"));
+
+            boolean suppressContentLength = responseOptions.contains("suppress-content-length");
+
+            if (!CHUNKED.equals(headers.get("Transfer-Encoding")) && !suppressContentLength) {
                 if (bodyBuffer != null) {
                     // trust the computed length
                     headers.putOrReplace(CL, Integer.toString(bodyBuffer.remaining()));
@@ -449,6 +456,7 @@ public class HttpUtils {
                     headers.putOrReplace(CL, "0");
                 }
             }
+
         } catch (IOException e) {
             byte[] b = e.getMessage().getBytes(ASCII);
             status = 500;
@@ -457,10 +465,10 @@ public class HttpUtils {
             bodyBuffer = ByteBuffer.wrap(b);
         }
         if (!headers.containsKey("Server")) {
-          headers.put("Server", "http-kit");
+            headers.put("Server", "http-kit");
         }
         if (!headers.containsKey("Date")) {
-          headers.put("Date", DateFormatter.getDate()); // rfc says the Date is needed
+            headers.put("Date", DateFormatter.getDate()); // rfc says the Date is needed
         }
         DynamicBytes bytes = new DynamicBytes(196);
         byte[] bs = HttpStatus.valueOf(status).getInitialLineBytes();

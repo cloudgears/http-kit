@@ -89,11 +89,12 @@ public class AsyncChannel {
     }
 
     // Write first HTTP header and [first chunk data]? to client
-    private void firstWrite(Object data, boolean close) throws IOException {
+    private void firstWrite(Object data, boolean close) {
         ByteBuffer buffers[];
         int status = 200;
         Object body = data;
         HeaderMap headers;
+
         if (data instanceof Map) {
             Map<Keyword, Object> resp = (Map<Keyword, Object>) data;
             headers = HeaderMap.camelCase((Map) resp.get(HEADERS));
@@ -103,20 +104,21 @@ public class AsyncChannel {
             headers = new HeaderMap();
         }
 
-        if (headers.isEmpty()) { // default 200 and text/html
+        if (headers.isEmpty()) // default 200 and text/html
             headers.put("Content-Type", "text/html; charset=utf-8");
-        }
 
-        if (request.isKeepAlive && request.version == HttpVersion.HTTP_1_0) {
+        if (request.isKeepAlive && request.version == HttpVersion.HTTP_1_0)
             headers.put("Connection", "Keep-Alive");
-        }
+
+        Object conn = headers.get("Connection");
+        final boolean dropConnection = "close".equals(conn);
 
         if (close) { // normal response, Content-Length. Every http client understand it
             buffers = HttpEncode(status, headers, body);
         } else {
-            if (request.version == HttpVersion.HTTP_1_1) {
+            if (request.version == HttpVersion.HTTP_1_1)
                 headers.put("Transfer-Encoding", "chunked"); // first chunk
-            }
+
             ByteBuffer[] bb = HttpEncode(status, headers, body);
             if (body == null) {
                 buffers = bb;
@@ -129,10 +131,18 @@ public class AsyncChannel {
                 };
             }
         }
-        if (close) {
+        if (close)
             onClose(0);
-        }
-        server.tryWrite(key, !close, buffers);
+
+        final boolean chunkedResponseInProgress = !close;
+
+        server.tryWrite(key, new ServerAtta.Modifier() {
+            @Override
+            public void modify(ServerAtta atta) {
+                atta.setChunkedResponseInProgress(chunkedResponseInProgress);
+                atta.keepalive = atta.keepalive && !dropConnection;
+            }
+        }, buffers);
     }
 
     // for streaming, send a chunk of data to client
@@ -263,16 +273,16 @@ public class AsyncChannel {
         return closedRan == 1;
     }
 
-    static Keyword K_BY_SERVER = Keyword.intern("server-close");
-    static Keyword K_CLIENT_CLOSED = Keyword.intern("client-close");
+    private static Keyword K_BY_SERVER = Keyword.intern("server-close");
+    private static Keyword K_CLIENT_CLOSED = Keyword.intern("client-close");
 
     // http://datatracker.ietf.org/doc/rfc6455/?include_text=1
     // 7.4.1. Defined Status Codes
-    static Keyword K_WS_1000 = Keyword.intern("normal");
-    static Keyword K_WS_1001 = Keyword.intern("going-away");
-    static Keyword K_WS_1002 = Keyword.intern("protocol-error");
-    static Keyword K_WS_1003 = Keyword.intern("unsupported");
-    static Keyword K_UNKNOWN = Keyword.intern("unknown");
+    private static Keyword K_WS_1000 = Keyword.intern("normal");
+    private static Keyword K_WS_1001 = Keyword.intern("going-away");
+    private static Keyword K_WS_1002 = Keyword.intern("protocol-error");
+    private static Keyword K_WS_1003 = Keyword.intern("unsupported");
+    private static Keyword K_UNKNOWN = Keyword.intern("unknown");
 
     private static Keyword readable(int status) {
         switch (status) {

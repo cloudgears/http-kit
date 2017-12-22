@@ -52,7 +52,7 @@ class PendingKey {
 
 public class HttpServer implements Runnable {
 
-    static final String THREAD_NAME = "server-loop";
+    private static final String THREAD_NAME = "server-loop";
 
     private final IHandler handler;
     private final int maxBody; // max http body size
@@ -64,8 +64,6 @@ public class HttpServer implements Runnable {
     private final ServerSocketChannel serverChannel;
 
     private final ProxyProtocolOption proxyProtocolOption;
-
-    private Thread serverThread;
 
     // queue operations from worker threads to the IO thread
     private final ConcurrentLinkedQueue<PendingKey> pending = new ConcurrentLinkedQueue<PendingKey>();
@@ -115,7 +113,7 @@ public class HttpServer implements Runnable {
         serverChannel.register(selector, OP_ACCEPT);
     }
 
-    void accept(SelectionKey key) {
+    private void accept(SelectionKey key) {
         ServerSocketChannel ch = (ServerSocketChannel) key.channel();
         SocketChannel s;
         try {
@@ -281,10 +279,19 @@ public class HttpServer implements Runnable {
         tryWrite(key, false, buffers);
     }
 
-    public void tryWrite(final SelectionKey key, boolean chunkInprogress, ByteBuffer... buffers) {
+    public void tryWrite(final SelectionKey key, final boolean chunkInProgress, ByteBuffer... buffers) {
+        tryWrite(key, new ServerAtta.Modifier() {
+            @Override
+            public void modify(ServerAtta atta) {
+                atta.setChunkedResponseInProgress(chunkInProgress);
+            }
+        }, buffers);
+    }
+
+    public void tryWrite(final SelectionKey key, ServerAtta.Modifier attaModifier, ByteBuffer... buffers) {
         ServerAtta atta = (ServerAtta) key.attachment();
         synchronized (atta) {
-            atta.chunkedResponseInprogress(chunkInprogress);
+            attaModifier.modify(atta);
             if (atta.toWrites.isEmpty()) {
                 SocketChannel ch = (SocketChannel) key.channel();
                 try {
@@ -362,9 +369,8 @@ public class HttpServer implements Runnable {
         }
     }
 
-    public void start() throws IOException {
-        serverThread = new Thread(this, THREAD_NAME);
-        serverThread.start();
+    public void start() {
+        new Thread(this, THREAD_NAME).start();
     }
 
     public void stop(int timeout) {
@@ -381,7 +387,7 @@ public class HttpServer implements Runnable {
 //            Set<SelectionKey> keys = selector.keys();
 //            SelectionKey[] keys = t.toArray(new SelectionKey[t.size()]);
             for (SelectionKey k : selector.keys()) {
-                /**
+                /*
                  * 1. t.toArray will fill null if given array is larger.
                  * 2. compute t.size(), then try to fill the array, if in the mean time, another
                  *    thread close one SelectionKey, will result a NPE

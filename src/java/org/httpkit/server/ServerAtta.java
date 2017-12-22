@@ -17,7 +17,7 @@ public abstract class ServerAtta {
     protected boolean keepalive = true;
 
     public boolean isKeepAlive() {
-        return keepalive || chunkedResponseInprogress;
+        return keepalive || chunkedResponseInProgress;
     }
 
     // Needed in the following situation, thanks @rufoa
@@ -27,9 +27,14 @@ public abstract class ServerAtta {
     // 3. server close the connection after first write, which makes a bad streaming
 
     // only apply to HTTP
-    protected boolean chunkedResponseInprogress = false;
+    private boolean chunkedResponseInProgress = false;
 
-    public void chunkedResponseInprogress(boolean b) {
-        chunkedResponseInprogress = b;
+    public void setChunkedResponseInProgress(boolean b) {
+        chunkedResponseInProgress = b;
+    }
+
+
+    interface Modifier {
+        void modify(ServerAtta atta);
     }
 }
